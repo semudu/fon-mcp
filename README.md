@@ -2,7 +2,7 @@
 
 **Model Context Protocol (MCP) sunucusu — Türk yatırım fonu verileri (TEFAS + KAP)**
 
-LLM'lerin [TEFAS](https://www.tefas.gov.tr) ve [KAP](https://www.kap.org.tr) verilerine doğrudan erişmesini sağlar. Fon fiyat geçmişi, portföy dağılımı, performans metrikleri, yatırımcı akış analizi ve KAP bildirimleri için 20 MCP aracı içerir. Tüm veriler yerel DuckDB cache'inde saklanır; tekrar sorgularda API çağrısı yapılmaz.
+LLM'lerin [TEFAS](https://www.tefas.gov.tr) ve [KAP](https://www.kap.org.tr) verilerine doğrudan erişmesini sağlar. Fon fiyat geçmişi, portföy dağılımı, performans metrikleri, yatırımcı akış analizi ve KAP bildirimleri için 21 MCP aracı içerir. Tüm veriler yerel DuckDB cache'inde saklanır; tekrar sorgularda API çağrısı yapılmaz.
 
 ---
 
@@ -18,15 +18,16 @@ LLM'lerin [TEFAS](https://www.tefas.gov.tr) ve [KAP](https://www.kap.org.tr) ver
 | `list_founders` | Fon kurucuları |
 | `search_funds` | Fon kodu, şemsiye türü veya isim filtresiyle arama |
 
-### KAP (6 araç)
+### KAP (7 araç)
 | Araç | Açıklama |
 |------|----------|
 | `list_kap_funds` | KAP'ta kayıtlı fonlar (BYF, YF, EYF…) |
 | `get_fund_disclosures` | Fona ait KAP bildirimleri, konu filtresiyle |
+| `search_disclosures` | Cache'lenmiş bildirimlerde tam metin arama |
 | `get_disclosure_detail` | Bildirim sayfasının tam metin içeriği |
-| `list_companies` | KAP'ta kayıtlı şirketler ve kurucu listesi |
-| `get_company_disclosures` | Şirkete ait bildirimler |
+| `get_disclosure_attachments` | Bildirimin dosya eklerini listele |
 | `download_attachment` | KAP bildirim ekini indir (PDF/DOCX → Markdown) |
+| `get_fund_document` | Fonun belirli türdeki son belgesini Markdown olarak getir |
 
 ### Analitik (6 araç)
 | Araç | Açıklama |
