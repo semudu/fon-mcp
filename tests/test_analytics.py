@@ -24,7 +24,7 @@ def no_real_tefas():
     mock_instance.__enter__ = MagicMock(return_value=mock_instance)
     mock_instance.__exit__ = MagicMock(return_value=False)
     mock_instance.fetch.return_value = {}
-    with patch("fon_mcp.tools.analytics.Tefas", return_value=mock_instance):
+    with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_instance):
         yield
 
 

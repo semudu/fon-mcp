@@ -124,7 +124,7 @@ class TestGetFundPriceHistory:
         mock_tefas.__exit__ = MagicMock(return_value=False)
         mock_tefas.fetch.return_value = {"AAK": fund}
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_tefas):
             result = tools["get_fund_price_history"]("AAK", "2025-01-02", "2025-01-03")
 
         assert result["fund_code"] == "AAK"
@@ -140,7 +140,7 @@ class TestGetFundPriceHistory:
         mock_tefas.__exit__ = MagicMock(return_value=False)
         mock_tefas.fetch.return_value = {"AAK": fund}
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_tefas):
             tools["get_fund_price_history"]("AAK", "2025-01-02", "2025-01-02")
             result = tools["get_fund_price_history"]("AAK", "2025-01-02", "2025-01-02")
 
@@ -152,7 +152,7 @@ class TestGetFundPriceHistory:
         mock_tefas.__exit__ = MagicMock(return_value=False)
         mock_tefas.fetch.return_value = {}
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_tefas):
             result = tools["get_fund_price_history"]("NOPE", "2025-01-01", "2025-01-31")
 
         assert result["entries"] == []
@@ -231,7 +231,7 @@ class TestSearchFunds:
         mock_tefas.__exit__ = MagicMock(return_value=False)
         mock_tefas.fetch.return_value = {code: fund_mock}
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_tefas):
             result = tools["search_funds"](name_filter="altın")
 
         assert len(result["funds"]) == 1
@@ -245,7 +245,7 @@ class TestSearchFunds:
         mock_tefas.__exit__ = MagicMock(return_value=False)
         mock_tefas.fetch.return_value = {code: fund_mock}
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_tefas):
             result = tools["search_funds"](name_filter="altın")
 
         assert len(result["funds"]) >= 1

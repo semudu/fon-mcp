@@ -11,6 +11,7 @@ from tefas_client import Tefas
 
 from fon_mcp import _db as db
 from fon_mcp._settings import get as settings
+from fon_mcp._tefas_utils import fetch_with_fallback, to_business_day
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +63,10 @@ def register(mcp: FastMCP) -> None:
                 logger.debug("Cache hit: price_cache %s %s–%s", code, start_date, end)
                 return {"fund_code": code, "entries": cached, "source": "cache"}
 
-        start_dt = date.fromisoformat(start_date)
-        end_dt = date.fromisoformat(end)
+        start_dt = to_business_day(date.fromisoformat(start_date))
+        end_dt = to_business_day(date.fromisoformat(end))
 
-        with Tefas() as tefas:
-            funds = tefas.fetch(
-                code, start_date=start_dt, end_date=end_dt, include_allocation=include_allocation
-            )
+        funds = fetch_with_fallback(code, start_dt, end_dt, include_allocation=include_allocation)
 
         if code not in funds:
             return {"fund_code": code, "entries": [], "source": "api"}
@@ -322,17 +320,17 @@ def register(mcp: FastMCP) -> None:
         end = end_date or _today()
         start = start_date or end
 
-        start_dt = date.fromisoformat(start)
-        end_dt = date.fromisoformat(end)
+        start_dt = to_business_day(date.fromisoformat(start))
+        end_dt = to_business_day(date.fromisoformat(end))
 
-        with Tefas() as tefas:
-            funds = tefas.fetch(
-                fund_type=fund_type,  # type: ignore[arg-type]
-                founder_code=founder_code,
-                umbrella_type=umbrella_type,
-                start_date=start_dt,
-                end_date=end_dt,
-            )
+        funds = fetch_with_fallback(
+            None,
+            start_dt,
+            end_dt,
+            fund_type=fund_type,  # type: ignore[arg-type]
+            founder_code=founder_code,
+            umbrella_type=umbrella_type,
+        )
 
         result = []
         for code, fund in funds.items():

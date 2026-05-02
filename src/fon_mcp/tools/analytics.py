@@ -9,10 +9,10 @@ from datetime import date, timedelta
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from tefas_client import Tefas
 
 from fon_mcp import _db as db
 from fon_mcp._settings import get as settings
+from fon_mcp._tefas_utils import fetch_with_fallback, to_business_day
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,10 @@ def _ensure_prices(fund_code: str, start_date: str, end_date: str, cfg: Any) -> 
     if cached:
         return True
 
-    start_dt = date.fromisoformat(start_date)
-    end_dt = date.fromisoformat(end_date)
-    with Tefas() as tefas:
-        funds = tefas.fetch(fund_code, start_date=start_dt, end_date=end_dt)
+    start_dt = to_business_day(date.fromisoformat(start_date))
+    end_dt = to_business_day(date.fromisoformat(end_date))
+
+    funds = fetch_with_fallback(fund_code, start_dt, end_dt)
 
     if fund_code not in funds:
         return False
