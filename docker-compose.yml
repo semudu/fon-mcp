@@ -1,0 +1,22 @@
+services:
+  fon-mcp:
+    build: .
+    # stdio transport — attach stdin/stdout for MCP clients
+    stdin_open: true
+    tty: false
+    volumes:
+      # Persistent DuckDB cache and attachments
+      - fon_mcp_data:/data
+      # Optional: mount a local config.toml (copy config.example.toml → config.toml and edit)
+      # - ./config.toml:/app/config.toml:ro
+    environment:
+      FON_MCP_DB_FILE: /data/cache.duckdb
+      FON_MCP_ATTACHMENTS_DIR: /data/attachments
+      # Override any setting via env vars — see config.example.toml for all keys
+      # FON_MCP_RISK_FREE_RATE: "0.40"
+      # FON_MCP_CACHE_TTL_SNAPSHOT: "900"
+    # Uncomment to load settings from a .env file instead:
+    # env_file: .env
+
+volumes:
+  fon_mcp_data:

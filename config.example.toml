@@ -1,0 +1,48 @@
+# fon-mcp yapılandırma dosyası
+#
+# Kopyalama: cp config.example.toml config.toml
+# Öncelik sırası: Ortam değişkenleri (FON_MCP_*) > config.toml > varsayılanlar
+#
+# Tüm ayarlar ortam değişkeni olarak da verilebilir.
+# Örnek: FON_MCP_RISK_FREE_RATE=0.45
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Depolama ────────────────────────────────────────────────────────────────
+
+# DuckDB veritabanı dosyası konumu
+# db_file = "~/.fon-mcp/cache.duckdb"
+
+# İndirilen KAP ekleri için dizin
+# attachments_dir = "~/.fon-mcp/attachments"
+
+# İndirilen dosyaları otomatik Markdown'a çevir (PDF, DOCX, XLSX)
+# convert_on_download = true
+
+# ─── Analitik ────────────────────────────────────────────────────────────────
+
+# Sharpe oranı hesabında kullanılan yıllık risksiz getiri oranı
+# Türkiye için politika faizine yakın bir değer kullanın (örn. 0.40 = %40)
+# risk_free_rate = 0.40
+
+# ─── Cache TTL (saniye) ───────────────────────────────────────────────────────
+
+# Fon anlık görünümü (get_fund_snapshot) — 15 dakika
+# cache_ttl_snapshot = 900
+
+# Günlük fiyat verisi (get_fund_price_history) — 24 saat
+# cache_ttl_price = 86400
+
+# Portföy dağılımı (get_fund_allocation) — 24 saat
+# cache_ttl_allocation = 86400
+
+# Fon listesi (list_kap_funds, search_funds) — 7 gün
+# cache_ttl_fund_list = 604800
+
+# KAP bildirimleri (get_fund_disclosures) — 1 saat
+# cache_ttl_disclosure = 3600
+
+# KAP bildirim detayı (get_disclosure_detail) — 30 gün (yayımlanan bildirimler değişmez)
+# cache_ttl_disclosure_detail = 2592000
+
+# Performans metrikleri (calculate_metrics) — 24 saat
+# cache_ttl_metrics = 86400
