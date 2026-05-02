@@ -18,6 +18,12 @@
 # İndirilen dosyaları otomatik Markdown'a çevir (PDF, DOCX, XLSX)
 # convert_on_download = true
 
+# ─── Versiyon kontrolü ───────────────────────────────────────────────────────
+
+# Startup sırasında GitHub Releases API'den yeni versiyon olup olmadığını kontrol eder.
+# Boş bırakılırsa kontrol yapılmaz.
+# github_repo = "your-org/fon-mcp"
+
 # ─── Analitik ────────────────────────────────────────────────────────────────
 
 # Sharpe oranı hesabında kullanılan yıllık risksiz getiri oranı

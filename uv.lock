@@ -475,7 +475,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.1" },
-    { name = "kap-client" },
+    { name = "kap-client", specifier = ">=1.1.0" },
     { name = "markitdown", extras = ["docx", "pdf"], specifier = ">=0.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -599,15 +599,15 @@ wheels = [
 
 [[package]]
 name = "kap-client"
-version = "1.0.1"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d3/a1/1abd587d9691c413b4533ec393dbfd815c1c54d841cf2962a61e0c015dbf/kap_client-1.0.1.tar.gz", hash = "sha256:ec66553d16d92f6285e4ced629d52b59c9a02e3354095ea73391673efaed6397", size = 65522, upload-time = "2026-05-02T05:48:51.038Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/9d/83e7799f8290051ba3c7fc03471e05dd5e3334fee6e7b005cc14fdfbe3a2/kap_client-1.1.0.tar.gz", hash = "sha256:a832371ddb0679640ed777e28b48ba8582f839307c3dde5cff9c0b650325bf61", size = 67234, upload-time = "2026-05-02T16:05:58.155Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/32/2e/07469097ffe3b1ddc4f326a9e8eea5d8cd2bcb3669ba3a8f0071c76ac213/kap_client-1.0.1-py3-none-any.whl", hash = "sha256:fecc68ac5fb029eb6d2a7ff4ce4de8090d0417e15e087722ebb5a945bbfa0017", size = 19574, upload-time = "2026-05-02T05:48:49.625Z" },
+    { url = "https://files.pythonhosted.org/packages/46/20/1437f27261cb4f2dde5f8f760b979b9f0cbaac1f1b08ef9bc9495ef07858/kap_client-1.1.0-py3-none-any.whl", hash = "sha256:ea01048915d3936c1013bea900ccd6cd87e07171e0fad69b21ee937f35bd2984", size = 21025, upload-time = "2026-05-02T16:05:56.592Z" },
 ]
 
 [[package]]

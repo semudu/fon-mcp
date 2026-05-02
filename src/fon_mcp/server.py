@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from fon_mcp import _db as db
 from fon_mcp import warmup
 from fon_mcp._settings import get as settings
+from fon_mcp._version_check import check_in_background
 from fon_mcp.tools import admin, analytics, kap, tefas
 
 logging.basicConfig(
@@ -102,6 +103,8 @@ def main() -> None:
 
     logger.info("fon-mcp başlatılıyor — DB: %s", cfg.db_file)
     db.init(cfg.db_file)
+
+    check_in_background(cfg.github_repo)
 
     try:
         warmup.run(cfg)

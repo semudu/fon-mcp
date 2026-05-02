@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     db_file: str = "~/.fon-mcp/cache.duckdb"
     attachments_dir: str = "~/.fon-mcp/attachments"
 
+    # --- github version check ---
+    github_repo: str = ""  # örn. "your-org/fon-mcp"; boş bırakılırsa kontrol yapılmaz
+
     # --- markitdown ---
     convert_on_download: bool = True  # auto-convert attachments to markdown
 
