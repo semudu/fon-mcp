@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
+import os
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -133,6 +135,51 @@ SUBJECT_ALIASES: dict[str, str] = {
 
 # Geriye dönük uyumluluk için alias
 DOC_TYPE_ALIASES = SUBJECT_ALIASES
+
+
+_MAX_MD_CHARS = 200_000  # yanıta eklenecek varsayılan maksimum karakter
+
+
+def _file_to_markdown(path: str, full_text: bool = False) -> tuple[str, int]:
+    """Dosyayı Markdown metne çevirir.
+
+    PDF → PyMuPDF (hızlı C extension, saniyeler içinde).
+    DOCX/XLSX/diğer → markitdown (60s timeout).
+
+    Returns:
+        (text, total_chars) tuple.
+        full_text=False ise text _MAX_MD_CHARS'da kırpılır, total_chars ham uzunluğu gösterir.
+    """
+    p = Path(path)
+    logger.info("Belge dönüştürülüyor: %s (%.1f KB)", p.name, p.stat().st_size / 1024)
+
+    if p.suffix.lower() == ".pdf":
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(str(p))
+        parts: list[str] = []
+        for page in doc:
+            parts.append(page.get_text())
+        doc.close()
+        text = "\n".join(parts)
+    else:
+        # DOCX / XLSX / diğer — markitdown ayrı thread'de, 60s timeout
+        with concurrent.futures.ThreadPoolExecutor(max_workers=None) as ex:
+            future = ex.submit(
+                lambda: __import__("markitdown").MarkItDown().convert(str(p)).text_content
+            )
+            try:
+                text = future.result(timeout=60)
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                raise TimeoutError(f"Dönüşüm 60s içinde tamamlanamadı: {p.name}")
+
+    total_chars = len(text)
+    if not full_text and total_chars > _MAX_MD_CHARS:
+        text = text[:_MAX_MD_CHARS]
+
+    logger.info("Dönüşüm tamam: %s → %d / %d karakter", p.name, len(text), total_chars)
+    return text, total_chars
 
 
 def _resolve_subject(subject: str) -> str | None:
@@ -405,7 +452,12 @@ def register(mcp: FastMCP) -> None:
         return {"index": disclosure_index, "attachments": result, "count": len(result)}
 
     @mcp.tool()
-    def download_attachment(url: str, filename: str = "", as_markdown: bool = True) -> dict:
+    def download_attachment(
+        url: str,
+        filename: str = "",
+        as_markdown: bool = True,
+        full_text: bool = False,
+    ) -> dict:
         """Bir KAP bildirim ekini indirir ve opsiyonel olarak Markdown formatına çevirir.
 
         PDF, DOCX, XLSX ve diğer desteklenen formatlar otomatik olarak Markdown'a dönüştürülür.
@@ -416,10 +468,12 @@ def register(mcp: FastMCP) -> None:
             filename: Dosya adı (opsiyonel). Belirtilmezse URL'den türetilir.
             as_markdown: True ise içerik Markdown formatında döndürülür (default True).
                 False ise dosya diske kaydedilir ve yol döndürülür.
+            full_text: True ise 200.000 karakter sınırı uygulanmaz, tam içerik döndürülür.
+                İçerik çok büyükse önce False ile çağırın; uyarı gelirse True ile tekrar çağırın.
 
         Returns:
-            as_markdown=True ise: {filename, markdown_content}
-            as_markdown=False ise: {filename, saved_path}
+            as_markdown=True ise: {filename, source_url, markdown_content}
+            as_markdown=False ise: {filename, source_url, saved_path}
         """
         attachments_dir = Path(cfg.attachments_dir)
         attachments_dir.mkdir(parents=True, exist_ok=True)
@@ -434,23 +488,30 @@ def register(mcp: FastMCP) -> None:
 
         if as_markdown:
             try:
-                from markitdown import MarkItDown
-
-                result_md = MarkItDown().convert(str(save_path))
-                return {
+                markdown_text, total_chars = _file_to_markdown(str(save_path), full_text=full_text)
+                result: dict = {
                     "filename": safe_name,
-                    "markdown_content": result_md.text_content,
-                    "source": "api+markitdown",
+                    "source_url": url,
+                    "markdown_content": markdown_text,
                 }
+                if not full_text and total_chars > _MAX_MD_CHARS:
+                    result["content_truncated"] = True
+                    result["total_chars"] = total_chars
+                    result["truncation_warning"] = (
+                        f"İçerik {total_chars:,} karakter olduğundan ilk {_MAX_MD_CHARS:,} "
+                        f"karakteri döndürüldü. Tam içerik için full_text=True ile tekrar çağırın."
+                    )
+                return result
             except Exception as e:
-                logger.warning("markitdown conversion failed for %s: %s", safe_name, e)
+                logger.warning("Dönüşüm hatası (%s): %s", safe_name, e)
                 return {
                     "filename": safe_name,
+                    "source_url": url,
                     "saved_path": str(save_path),
-                    "error": f"Markdown conversion failed: {e}",
+                    "error": f"Dönüşüm hatası: {e}",
                 }
 
-        return {"filename": safe_name, "saved_path": str(save_path)}
+        return {"filename": safe_name, "source_url": url, "saved_path": str(save_path)}
 
     @mcp.tool()
     def get_fund_document(
@@ -458,6 +519,7 @@ def register(mcp: FastMCP) -> None:
         document_type: str,
         fund_group: str | None = None,
         days_back: int | None = None,
+        full_text: bool = False,
     ) -> dict:
         """Bir fonun belirli türdeki en son KAP belgesini bulup Markdown olarak döndürür.
 
@@ -484,6 +546,8 @@ def register(mcp: FastMCP) -> None:
             days_back: Kaç gün geriye bakılacağı. Verilmezse otomatik olarak 60 → 180 → 365
                 gün sırasıyla genişletilir; raporlar aylık yayınlandığından çoğu durumda
                 60 gün yeterlidir.
+            full_text: True ise 200.000 karakter sınırı uygulanmaz, tam içerik döndürülür.
+                İçerik çok büyükse önce False ile çağırın; uyarı gelirse True ile tekrar çağırın.
 
         Returns:
             {fund_code, document_type, disclosure_date, disclosure_url, filename, markdown_content}
@@ -635,45 +699,58 @@ def register(mcp: FastMCP) -> None:
 
         sections: list[str] = []
         filenames: list[str] = []
+        truncated_files: list[dict] = []
 
-        with httpx.Client(timeout=60, follow_redirects=True) as client:
-            for att in convertible:
-                safe_name = att.filename or att.url.split("/")[-1] or "attachment.bin"
-                save_path = attachments_dir / safe_name
-                try:
-                    resp = client.get(att.url, headers={"Referer": "https://www.kap.org.tr/"})
-                    resp.raise_for_status()
-                    save_path.write_bytes(resp.content)
-                except Exception as e:
-                    logger.warning("Ek indirilemedi (%s): %s", safe_name, e)
-                    sections.append(f"### {safe_name}\n[İndirme hatası: {e}]")
-                    filenames.append(safe_name)
-                    continue
+        def _download_and_convert(att) -> tuple[str, str, str | None]:
+            """(safe_name, section_text, error_or_None) döndürür."""
+            sname = att.filename or att.url.split("/")[-1] or "attachment.bin"
+            spath = attachments_dir / sname
+            try:
+                with httpx.Client(timeout=60, follow_redirects=True) as c:
+                    r = c.get(att.url, headers={"Referer": "https://www.kap.org.tr/"})
+                    r.raise_for_status()
+                    spath.write_bytes(r.content)
+            except Exception as e:
+                logger.warning("Ek indirilemedi (%s): %s", sname, e)
+                return sname, f"### {sname}\n[İndirme hatası: {e}]", str(e)
+            try:
+                md_text, total_chars = _file_to_markdown(str(spath), full_text=full_text)
+                if not full_text and total_chars > _MAX_MD_CHARS:
+                    truncated_files.append({"filename": sname, "total_chars": total_chars})
+                return sname, f"### {sname}\n{md_text}", None
+            except Exception as e:
+                logger.warning("Dönüşüm hatası (%s): %s", sname, e)
+                return sname, f"### {sname}\n[Dönüştürme hatası: {e}]", str(e)
 
-                try:
-                    from markitdown import MarkItDown
-
-                    md_result = MarkItDown().convert(str(save_path))
-                    sections.append(f"### {safe_name}\n{md_result.text_content}")
-                except Exception as e:
-                    logger.warning("markitdown conversion failed for %s: %s", safe_name, e)
-                    sections.append(
-                        f"### {safe_name}\n[Dönüştürme hatası: {e}. Dosya: {save_path}]"
-                    )
-
-                filenames.append(safe_name)
+        workers = min(len(convertible), (os.cpu_count() or 4) * 2)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_download_and_convert, att) for att in convertible]
+            for fut in concurrent.futures.as_completed(futures):
+                sname, section, _ = fut.result()
+                sections.append(section)
+                filenames.append(sname)
 
         markdown_content = "\n\n---\n\n".join(sections)
 
-        return {
+        response: dict = {
             "fund_code": code,
             "document_type": subject_enum_name,
             "disclosure_date": latest.publish_datetime.isoformat(),
             "disclosure_url": latest.url,
+            "source_urls": [att.url for att in convertible],
             "filenames": filenames,
             "attachment_count": len(filenames),
             "markdown_content": markdown_content,
         }
+        if truncated_files:
+            response["content_truncated"] = True
+            response["truncated_files"] = truncated_files
+            response["truncation_warning"] = (
+                f"{len(truncated_files)} dosya {_MAX_MD_CHARS:,} karakterde kesildi: "
+                + ", ".join(f"{t['filename']} ({t['total_chars']:,} kar.)" for t in truncated_files)
+                + " — Tam içerik için full_text=True ile tekrar çağırın."
+            )
+        return response
 
 
 # ---------------------------------------------------------------------------
