@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -100,7 +100,17 @@ def register(mcp: FastMCP) -> None:
                 for h in fund.history
             ]
 
-        return {"fund_code": code, "entries": entries, "source": "api"}
+        today_str = _today()
+        result_entries = {"fund_code": code, "entries": entries, "source": "api"}
+        if entries:
+            latest = entries[-1]["date"]
+            result_entries["latest_entry_date"] = latest
+            if latest < today_str:
+                result_entries["note"] = (
+                    f"Bugün ({today_str}) için fiyat henüz yayımlanmamış. "
+                    f"En son kayıt {latest} tarihlidir (tatil veya erken saat)."
+                )
+        return result_entries
 
     @mcp.tool()
     def get_fund_snapshot(fund_code: str) -> dict:
@@ -124,11 +134,20 @@ def register(mcp: FastMCP) -> None:
 
         with Tefas() as tefas:
             overview = tefas.fetch_overview(code)
+            # Fiyat tarihini belirle: son 3 günlük geçmişe bak
+            today_str = _today()
+            today_dt = date.fromisoformat(today_str)
+            hist = tefas.fetch(code, start_date=today_dt - timedelta(days=3), end_date=today_dt)
 
-        result = {
+        price_date: str | None = None
+        if code in hist and hist[code].history:
+            price_date = hist[code].history[-1].date.isoformat()  # son giriş (ascending)
+
+        result: dict = {
             "fund_code": code,
             "title": overview.title,
             "price": overview.price,
+            "price_date": price_date,
             "daily_return_pct": overview.daily_return,
             "portfolio_size": overview.market_cap,
             "share_count": overview.shares,
@@ -138,6 +157,12 @@ def register(mcp: FastMCP) -> None:
             "category_rank": overview.category_rank,
             "category_fund_count": overview.category_fund_count,
         }
+        if price_date and price_date < today_str:
+            result["stale_data"] = True
+            result["note"] = (
+                f"Bugün ({today_str}) için fiyat henüz yayımlanmamış. "
+                f"Gösterilen fiyat {price_date} tarihlidir (tatil veya erken saat)."
+            )
 
         db.snapshot_cache_set(code, result)
         return {**result, "source": "api"}
@@ -168,21 +193,36 @@ def register(mcp: FastMCP) -> None:
                 code, start_date=target_dt, end_date=target_dt, include_allocation=True
             )
 
+            # Bugün için veri yoksa (tatil/erken saat) → son 7 güne geri dön
+            if code not in funds or not any(h.allocation for h in funds[code].history):
+                logger.info(
+                    "%s için %s tarihli portföy dağılımı yok; son 7 gün deneniyor.",
+                    code,
+                    date_str,
+                )
+                fallback_start = target_dt - timedelta(days=7)
+                funds = tefas.fetch(
+                    code, start_date=fallback_start, end_date=target_dt, include_allocation=True
+                )
+
         if code not in funds:
             return {
                 "fund_code": code,
                 "date": date_str,
                 "assets": {},
                 "asset_names": {},
+                "note": "Belirtilen tarih ve önceki 7 gün için portföy dağılımı bulunamadı.",
                 "source": "api",
             }
 
         fund = funds[code]
-        # Find entry closest to target_date
+        # En son allocation'ı bul (history ascending sıralı → sondan başa bak)
         alloc = None
-        for h in fund.history:
+        actual_date = date_str
+        for h in reversed(fund.history):
             if h.allocation:
                 alloc = h.allocation
+                actual_date = h.date.isoformat()
                 break
 
         if alloc is None:
@@ -191,12 +231,19 @@ def register(mcp: FastMCP) -> None:
                 "date": date_str,
                 "assets": {},
                 "asset_names": {},
+                "note": "Belirtilen tarih ve önceki 7 gün için portföy dağılımı bulunamadı.",
                 "source": "api",
             }
 
         data = {"assets": alloc.assets, "asset_names": alloc.asset_names}
-        db.allocation_cache_set(code, date_str, data)
-        return {"fund_code": code, "date": date_str, **data, "source": "api"}
+        db.allocation_cache_set(code, actual_date, data)
+        result = {"fund_code": code, "date": actual_date, **data, "source": "api"}
+        if actual_date < date_str:
+            result["note"] = (
+                f"İstenen tarih ({date_str}) için veri yok. "
+                f"Gösterilen portföy dağılımı {actual_date} tarihlidir (tatil veya erken saat)."
+            )
+        return result
 
     @mcp.tool()
     def list_fund_types(fund_type: str = "YAT") -> dict:

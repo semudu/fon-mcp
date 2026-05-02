@@ -8,6 +8,7 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 from fon_mcp import _db as db
+from fon_mcp import warmup
 from fon_mcp._settings import get as settings
 from fon_mcp.tools import admin, analytics, kap, tefas
 
@@ -101,6 +102,11 @@ def main() -> None:
 
     logger.info("fon-mcp başlatılıyor — DB: %s", cfg.db_file)
     db.init(cfg.db_file)
+
+    try:
+        warmup.run(cfg)
+    except Exception:
+        logger.warning("Cache warmup tamamlanamadı; sunucu çalışmaya devam ediyor.", exc_info=True)
 
     tefas.register(mcp)
     kap.register(mcp)

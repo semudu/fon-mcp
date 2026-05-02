@@ -375,6 +375,58 @@ def fts_search(
 
 
 # ---------------------------------------------------------------------------
+# Fund group lookup
+# ---------------------------------------------------------------------------
+
+
+def lookup_fund_group(fund_code: str) -> str | None:
+    """fund_list_cache'ten fon koduna ait KAP grup kodunu döndürür.
+
+    cache_key formatı: 'kap_funds:{GROUP}:active' veya 'kap_funds:{GROUP}:all'
+    Dönen değer örn: 'YF', 'BYF', 'EYF'.  Bulunamazsa None.
+    """
+    con = get()
+    rows = con.execute(
+        "SELECT cache_key, data_json FROM fund_list_cache WHERE cache_key LIKE 'kap_funds:%'"
+    ).fetchall()
+    code_upper = fund_code.strip().upper()
+    for cache_key, data_json in rows:
+        try:
+            funds = json.loads(data_json)
+            if any(f.get("code", "").upper() == code_upper for f in funds):
+                # 'kap_funds:YF:active' → 'YF'
+                parts = cache_key.split(":")
+                if len(parts) >= 2:
+                    return parts[1]
+        except Exception:
+            continue
+    return None
+
+
+def lookup_fund_oid(fund_code: str) -> str | None:
+    """fund_list_cache'ten fon koduna ait KAP OID'ini döndürür.
+
+    Dönen değer 32 karakterli hex OID (örn. '4028328c950ba8c70195140f682921da').
+    Bulunamazsa None.
+    """
+    con = get()
+    rows = con.execute(
+        "SELECT data_json FROM fund_list_cache WHERE cache_key LIKE 'kap_funds:%'"
+    ).fetchall()
+    code_upper = fund_code.strip().upper()
+    for (data_json,) in rows:
+        try:
+            funds = json.loads(data_json)
+            for f in funds:
+                if f.get("code", "").upper() == code_upper:
+                    oid = f.get("oid", "")
+                    return oid if oid else None
+        except Exception:
+            continue
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Cache invalidation
 # ---------------------------------------------------------------------------
 

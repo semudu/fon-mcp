@@ -13,6 +13,7 @@ from kap_client import FundGroup, FundSubject, Kap
 from mcp.server.fastmcp import FastMCP
 
 from fon_mcp import _db as db
+from fon_mcp import warmup as _warmup_mod
 from fon_mcp._settings import get as settings
 
 logger = logging.getLogger(__name__)
@@ -28,50 +29,127 @@ SUBJECT_LABELS: dict[str, str] = {
     FundSubject.KESINLESEN_PORTFOY_BILGILERI.value: "Kesinleşen Portföy Bilgileri",
     FundSubject.OZEL_DURUM_ACIKLAMASI.value: "Özel Durum Açıklaması",
     FundSubject.PERFORMANS_SUNUM_RAPORU.value: "Performans Sunum Raporu",
+    FundSubject.PORTFOY_DAGILIM_RAPORU.value: "Portföy Dağılım Raporu",
     FundSubject.FON_TOPLAM_GIDER_ORANI.value: "Fon Toplam Gider Oranı",
     FundSubject.SORUMLULUK_BEYANI.value: "Sorumluluk Beyanı",
 }
 
 FUND_GROUP_LABELS: dict[str, str] = {g.value: g.name.replace("_", " ").title() for g in FundGroup}
 
-# Human-friendly document type aliases → FundSubject enum name
-DOC_TYPE_ALIASES: dict[str, str] = {
-    # Portföy
-    "portföy": "KESINLESEN_PORTFOY_BILGILERI",
-    "portfolyo": "KESINLESEN_PORTFOY_BILGILERI",
-    "portfolio": "KESINLESEN_PORTFOY_BILGILERI",
+# Human-friendly aliases → FundSubject enum name (küçük harf anahtar, tam eşleşme)
+# Hem get_fund_document hem get_fund_disclosures tarafından kullanılır.
+SUBJECT_ALIASES: dict[str, str] = {
+    # --- Portföy Dağılım Raporu (aylık standart portföy raporu) ---
+    "portföy": "PORTFOY_DAGILIM_RAPORU",
+    "portfolyo": "PORTFOY_DAGILIM_RAPORU",
+    "portfolio": "PORTFOY_DAGILIM_RAPORU",
+    "portföy dağılım raporu": "PORTFOY_DAGILIM_RAPORU",
+    "portfoy dagilim raporu": "PORTFOY_DAGILIM_RAPORU",
+    "dağılım raporu": "PORTFOY_DAGILIM_RAPORU",
+    "dagilim raporu": "PORTFOY_DAGILIM_RAPORU",
+    "portfoy_dagilim_raporu": "PORTFOY_DAGILIM_RAPORU",
+    # --- Kesinleşen Portföy Bilgileri (BYF/özel fonlar için ayrı bildirim türü) ---
     "kesinlesen portfoy": "KESINLESEN_PORTFOY_BILGILERI",
-    "KESINLESEN_PORTFOY_BILGILERI": "KESINLESEN_PORTFOY_BILGILERI",
-    # İzahname
+    "kesinleşen portföy": "KESINLESEN_PORTFOY_BILGILERI",
+    "kesinleşen portföy bilgileri": "KESINLESEN_PORTFOY_BILGILERI",
+    "kesinlesen portfoy bilgileri": "KESINLESEN_PORTFOY_BILGILERI",
+    "portföy bilgileri": "KESINLESEN_PORTFOY_BILGILERI",
+    "kesinlesen_portfoy_bilgileri": "KESINLESEN_PORTFOY_BILGILERI",
+    # --- İzahname ---
     "izahname": "IZAHNAME",
     "prospectus": "IZAHNAME",
-    "IZAHNAME": "IZAHNAME",
-    # Yatırımcı bilgi formu / KID
+    "izahname_": "IZAHNAME",
+    # --- Yatırımcı Bilgi Formu / KID ---
     "yatirimci bilgi formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
     "yatırımcı bilgi formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
     "bilgilendirme formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
     "surekli bilgilendirme": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "sürekli bilgilendirme": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "fon surekli bilgilendirme formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "fon sürekli bilgilendirme formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
     "kid": "FON_SUREKLI_BILGILENDIRME_FORMU",
-    "FON_SUREKLI_BILGILENDIRME_FORMU": "FON_SUREKLI_BILGILENDIRME_FORMU",
-    # Performans sunum raporu
+    "fon_surekli_bilgilendirme_formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    # --- Performans Sunum Raporu ---
     "performans": "PERFORMANS_SUNUM_RAPORU",
     "performans raporu": "PERFORMANS_SUNUM_RAPORU",
+    "performans sunum raporu": "PERFORMANS_SUNUM_RAPORU",
     "performance": "PERFORMANS_SUNUM_RAPORU",
-    "PERFORMANS_SUNUM_RAPORU": "PERFORMANS_SUNUM_RAPORU",
-    # Finansal rapor
+    "performans_sunum_raporu": "PERFORMANS_SUNUM_RAPORU",
+    # --- Finansal Rapor ---
     "finansal": "FINANSAL_RAPOR",
     "finansal rapor": "FINANSAL_RAPOR",
     "financial": "FINANSAL_RAPOR",
-    "FINANSAL_RAPOR": "FINANSAL_RAPOR",
-    # Fon gider bilgileri
+    "finansal_rapor": "FINANSAL_RAPOR",
+    # --- Fon Gider Bilgileri ---
     "gider": "FON_GIDER_BILGILERI",
     "gider bilgileri": "FON_GIDER_BILGILERI",
-    "FON_GIDER_BILGILERI": "FON_GIDER_BILGILERI",
-    # Fona ilişkin bilgiler
+    "fon gider bilgileri": "FON_GIDER_BILGILERI",
+    "fon_gider_bilgileri": "FON_GIDER_BILGILERI",
+    # --- Fon Toplam Gider Oranı ---
+    "gider oranı": "FON_TOPLAM_GIDER_ORANI",
+    "gider orani": "FON_TOPLAM_GIDER_ORANI",
+    "fon toplam gider orani": "FON_TOPLAM_GIDER_ORANI",
+    "fon toplam gider oranı": "FON_TOPLAM_GIDER_ORANI",
+    "fon_toplam_gider_orani": "FON_TOPLAM_GIDER_ORANI",
+    # --- Fona İlişkin Bilgiler ---
     "fona iliskin": "FONA_ILISKIN_BILGILER",
+    "fona ilişkin": "FONA_ILISKIN_BILGILER",
+    "fona iliskin bilgiler": "FONA_ILISKIN_BILGILER",
+    "fona ilişkin bilgiler": "FONA_ILISKIN_BILGILER",
     "fon bilgileri": "FONA_ILISKIN_BILGILER",
-    "FONA_ILISKIN_BILGILER": "FONA_ILISKIN_BILGILER",
+    "fona_iliskin_bilgiler": "FONA_ILISKIN_BILGILER",
+    # --- Özel Durum Açıklaması ---
+    "özel durum": "OZEL_DURUM_ACIKLAMASI",
+    "ozel durum": "OZEL_DURUM_ACIKLAMASI",
+    "özel durum açıklaması": "OZEL_DURUM_ACIKLAMASI",
+    "ozel durum aciklamasi": "OZEL_DURUM_ACIKLAMASI",
+    "ozel_durum_aciklamasi": "OZEL_DURUM_ACIKLAMASI",
+    # --- Sorumluluk Beyanı ---
+    "sorumluluk beyanı": "SORUMLULUK_BEYANI",
+    "sorumluluk beyani": "SORUMLULUK_BEYANI",
+    "sorumluluk": "SORUMLULUK_BEYANI",
+    "sorumluluk_beyani": "SORUMLULUK_BEYANI",
+    # --- Yıllık Rapor ---
+    "yıllık rapor": "YILLIK_RAPOR",
+    "yillik rapor": "YILLIK_RAPOR",
+    "yillik_rapor": "YILLIK_RAPOR",
+    # --- Finansal Tablo Bildirimi ---
+    "finansal tablo": "FINANSAL_TABLO_BILDIRIMI",
+    "finansal tablo bildirimi": "FINANSAL_TABLO_BILDIRIMI",
+    "finansal_tablo_bildirimi": "FINANSAL_TABLO_BILDIRIMI",
+    # --- Genel Açıklama ---
+    "genel açıklama": "GENEL_ACIKLAMA",
+    "genel aciklama": "GENEL_ACIKLAMA",
+    "genel_aciklama": "GENEL_ACIKLAMA",
+    # --- Yatırımcı Raporu ---
+    "yatırımcı raporu": "YATIRIMCI_RAPORU",
+    "yatirimci raporu": "YATIRIMCI_RAPORU",
+    "yatirimci_raporu": "YATIRIMCI_RAPORU",
+    # --- Tanıtım Formu ---
+    "tanıtım formu": "TANITIM_FORMU",
+    "tanitim formu": "TANITIM_FORMU",
+    "tanitim_formu": "TANITIM_FORMU",
 }
+
+# Geriye dönük uyumluluk için alias
+DOC_TYPE_ALIASES = SUBJECT_ALIASES
+
+
+def _resolve_subject(subject: str) -> str | None:
+    """Doğal dil veya enum adını FundSubject enum adına çevirir. Bulunamazsa None döner."""
+    # 1) Tam küçük harf eşleşmesi (doğal dil)
+    key = subject.strip().lower()
+    if key in SUBJECT_ALIASES:
+        return SUBJECT_ALIASES[key]
+    # 2) Büyük harf → doğrudan FundSubject enum adı (KESINLESEN_PORTFOY_BILGILERI gibi)
+    upper = subject.strip().upper()
+    if hasattr(FundSubject, upper):
+        return upper
+    # 3) Underscore ile normalize edilmiş küçük harf eşleşmesi
+    normalized = upper.replace(" ", "_")
+    if hasattr(FundSubject, normalized):
+        return normalized
+    return None
 
 
 def register(mcp: FastMCP) -> None:
@@ -132,9 +210,12 @@ def register(mcp: FastMCP) -> None:
             start_date: Başlangıç tarihi (YYYY-MM-DD).
             end_date: Bitiş tarihi (YYYY-MM-DD).
             fund_group: Opsiyonel fon grubu kodu (BYF, YF, EYF vb.) — sorguyu hızlandırır.
-            subject: Opsiyonel konu filtresi. Geçerli değerler: FINANSAL_RAPOR,
-                KESINLESEN_PORTFOY_BILGILERI, PERFORMANS_SUNUM_RAPORU, FON_GIDER_BILGILERI,
-                IZAHNAME, OZEL_DURUM_ACIKLAMASI, FON_SUREKLI_BILGILENDIRME_FORMU vb.
+            subject: Opsiyonel konu filtresi. Hem Türkçe doğal dil ("portföy",
+                "kesinleşen portföy bilgileri", "performans", "izahname", "gider",
+                "finansal", "özel durum", "yatırımcı bilgi formu" vb.) hem de
+                tam enum adı (KESINLESEN_PORTFOY_BILGILERI, PERFORMANS_SUNUM_RAPORU,
+                FINANSAL_RAPOR, IZAHNAME, FON_GIDER_BILGILERI, FON_SUREKLI_BILGILENDIRME_FORMU,
+                OZEL_DURUM_ACIKLAMASI, SORUMLULUK_BEYANI, YILLIK_RAPOR vb.) kabul edilir.
 
         Returns:
             {disclosures: [{index, publish_datetime, company_name, fund_code, subject, summary, has_attachment, url}]}
@@ -149,18 +230,77 @@ def register(mcp: FastMCP) -> None:
 
         subject_oids: list[str] | None = None
         if subject:
-            attr = subject.upper()
-            if hasattr(FundSubject, attr):
-                subject_oids = [getattr(FundSubject, attr).value]
+            enum_name = _resolve_subject(subject)
+            if enum_name and hasattr(FundSubject, enum_name):
+                subject_oids = [getattr(FundSubject, enum_name).value]
+            else:
+                logger.warning("Bilinmeyen subject: %r — konu filtresi uygulanmıyor", subject)
 
-        with Kap() as kap:
-            disclosures = kap.fetch_fund_disclosures(
-                start_date=start_date,
-                end_date=end_date,
-                fund_code=code,
-                fund_group=fund_group,
-                subject_oids=subject_oids,
-            )
+        # KAP API fundTypeList=[]-yi desteklemiyor → 500 döndürür.
+        # fund_group bilinmiyorsa önce cache'den bak, yoksa warmup ile prefetch et.
+        resolved_group = fund_group
+        if not resolved_group:
+            resolved_group = db.lookup_fund_group(code)
+            if not resolved_group:
+                _warmup_mod._warmup_kap_fund_groups(cfg)
+                resolved_group = db.lookup_fund_group(code)
+
+        # --- Strateji 1: fund OID + tek subject → filter endpoint (sınır yok) ---
+        days_total = (date.fromisoformat(end_date) - date.fromisoformat(start_date)).days
+        fund_oid = db.lookup_fund_oid(code)
+        used_filter = False
+
+        if fund_oid and subject_oids and len(subject_oids) == 1 and days_total <= 365:
+            try:
+                with Kap() as kap:
+                    disclosures = kap.fetch_fund_disclosures_by_filter(
+                        fund_oid=fund_oid,
+                        subject_oid=subject_oids[0],
+                        days=days_total + 1,
+                    )
+                # Eski endpoint aralık dışını dahil etmez, biz de başlangıç tarihini uygulayalım
+                start_dt = date.fromisoformat(start_date)
+                disclosures = [d for d in disclosures if d.publish_datetime.date() >= start_dt]
+                used_filter = True
+            except Exception as exc:
+                logger.warning(
+                    "Filter endpoint başarısız (%s), byCriteria'ya geçiliyor: %s", code, exc
+                )
+                used_filter = False
+
+        if not used_filter:
+            with Kap() as kap:
+                if resolved_group:
+                    disclosures = _fetch_disclosures_chunked(
+                        kap,
+                        start_date=start_date,
+                        end_date=end_date,
+                        fund_code=code,
+                        fund_group=resolved_group,
+                        subject_oids=subject_oids,
+                    )
+                else:
+                    # Son çare: tüm grupları tara (nadir durum)
+                    logger.warning("Fon grubu bulunamadı (%s), tüm gruplar taranıyor", code)
+                    seen: set[int] = set()
+                    disclosures = []
+                    for grp in _warmup_mod._KAP_FUND_GROUPS:
+                        try:
+                            batch = _fetch_disclosures_chunked(
+                                kap,
+                                start_date=start_date,
+                                end_date=end_date,
+                                fund_code=code,
+                                fund_group=grp,
+                                subject_oids=subject_oids,
+                            )
+                        except Exception:
+                            continue
+                        for d in batch:
+                            if d.index not in seen:
+                                seen.add(d.index)
+                                disclosures.append(d)
+                    disclosures.sort(key=lambda d: d.publish_datetime, reverse=True)
 
         result = [
             {
@@ -317,7 +457,7 @@ def register(mcp: FastMCP) -> None:
         fund_code: str,
         document_type: str,
         fund_group: str | None = None,
-        days_back: int = 365,
+        days_back: int | None = None,
     ) -> dict:
         """Bir fonun belirli türdeki en son KAP belgesini bulup Markdown olarak döndürür.
 
@@ -341,53 +481,136 @@ def register(mcp: FastMCP) -> None:
                 "finansal" / "FINANSAL_RAPOR"
                 "gider" / "FON_GIDER_BILGILERI"
             fund_group: Opsiyonel fon grubu (BYF, YF, EYF vb.) — sorguyu hızlandırır.
-            days_back: Kaç gün geriye bakılacağı (default 365). Belge bulunamazsa artırın.
+            days_back: Kaç gün geriye bakılacağı. Verilmezse otomatik olarak 60 → 180 → 365
+                gün sırasıyla genişletilir; raporlar aylık yayınlandığından çoğu durumda
+                60 gün yeterlidir.
 
         Returns:
             {fund_code, document_type, disclosure_date, disclosure_url, filename, markdown_content}
             veya hata durumunda {error, fund_code, document_type, searched_days}
         """
         code = fund_code.strip().upper()
-        dt_key = document_type.strip().lower()
-        subject_enum_name = DOC_TYPE_ALIASES.get(dt_key) or DOC_TYPE_ALIASES.get(
-            document_type.strip()
-        )
+        subject_enum_name = _resolve_subject(document_type)
         if not subject_enum_name:
             return {
                 "error": (
                     f"Bilinmeyen belge türü: '{document_type}'. "
-                    f"Geçerli değerler: {', '.join(sorted(set(DOC_TYPE_ALIASES.values())))}"
+                    f"Örnekler: portföy, izahname, performans, finansal, gider, "
+                    f"yatırımcı bilgi formu, özel durum, sorumluluk beyanı, yıllık rapor"
                 ),
                 "fund_code": code,
             }
 
-        end_dt = date.today()
-        start_dt = end_dt - timedelta(days=days_back)
+        # Aranacak gün aralıkları: açıkça verilmişse tek seferlik, yoksa otomatik genişlet
+        search_ranges = [days_back] if days_back is not None else [60, 180, 365]
 
+        subject_oid_value: str | None = None
         subject_oids: list[str] | None = None
         if hasattr(FundSubject, subject_enum_name):
-            subject_oids = [getattr(FundSubject, subject_enum_name).value]
+            subject_oid_value = getattr(FundSubject, subject_enum_name).value
+            subject_oids = [subject_oid_value]
 
-        with Kap() as kap:
-            disclosures = kap.fetch_fund_disclosures(
-                start_date=start_dt.isoformat(),
-                end_date=end_dt.isoformat(),
-                fund_code=code,
-                fund_group=fund_group,
-                subject_oids=subject_oids,
-            )
+        # fund_group bilinmiyorsa cache'den bak, yoksa warmup ile çek (bir kez)
+        resolved_group = fund_group
+        if not resolved_group:
+            resolved_group = db.lookup_fund_group(code)
+            if not resolved_group:
+                _warmup_mod._warmup_kap_fund_groups(cfg)
+                resolved_group = db.lookup_fund_group(code)
 
-        with_attachment = [d for d in disclosures if d.has_attachment]
+        end_dt = date.today()
+        with_attachment: list = []
+        actual_days = search_ranges[-1]
+
+        # --- Strateji 1: fund OID + subject OID → filter endpoint (360 gün, sınır yok) ---
+        fund_oid = db.lookup_fund_oid(code)
+        if fund_oid and subject_oid_value:
+            try:
+                filter_days = max(search_ranges)
+                with Kap() as kap:
+                    disclosures = kap.fetch_fund_disclosures_by_filter(
+                        fund_oid=fund_oid,
+                        subject_oid=subject_oid_value,
+                        days=filter_days,
+                    )
+                with_attachment = [d for d in disclosures if d.has_attachment]
+                actual_days = filter_days
+                logger.info(
+                    "Filter endpoint kullanıldı (%s/%s): %d sonuç, %d ekli",
+                    code,
+                    subject_enum_name,
+                    len(disclosures),
+                    len(with_attachment),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Filter endpoint başarısız (%s/%s): %s — byCriteria'ya geçiliyor",
+                    code,
+                    subject_enum_name,
+                    exc,
+                )
+                with_attachment = []  # fall-back tetiklensin
+
+        # --- Strateji 2: byCriteria endpoint (chunked, date-range) ---
+        if not with_attachment:
+            for days in search_ranges:
+                actual_days = days
+                start_dt = end_dt - timedelta(days=days)
+                if days != search_ranges[0]:
+                    logger.info(
+                        "Belge bulunamadı (%s/%s), arama aralığı genişletiliyor: %d gün",
+                        code,
+                        subject_enum_name,
+                        days,
+                    )
+
+                with Kap() as kap:
+                    if resolved_group:
+                        disclosures = _fetch_disclosures_chunked(
+                            kap,
+                            start_date=start_dt.isoformat(),
+                            end_date=end_dt.isoformat(),
+                            fund_code=code,
+                            fund_group=resolved_group,
+                            subject_oids=subject_oids,
+                        )
+                    else:
+                        # Son çare: tüm grupları tara (warmup başarısız olduysa)
+                        logger.warning("Fon grubu bulunamadı (%s), tüm gruplar taranıyor", code)
+                        seen: set[int] = set()
+                        disclosures = []
+                        for grp in _warmup_mod._KAP_FUND_GROUPS:
+                            try:
+                                batch = _fetch_disclosures_chunked(
+                                    kap,
+                                    start_date=start_dt.isoformat(),
+                                    end_date=end_dt.isoformat(),
+                                    fund_code=code,
+                                    fund_group=grp,
+                                    subject_oids=subject_oids,
+                                )
+                            except Exception:
+                                continue
+                            for d in batch:
+                                if d.index not in seen:
+                                    seen.add(d.index)
+                                    disclosures.append(d)
+                        disclosures.sort(key=lambda d: d.publish_datetime, reverse=True)
+
+                with_attachment = [d for d in disclosures if d.has_attachment]
+                if with_attachment:
+                    break  # Belge bulundu, genişletmeye gerek yok
+
         if not with_attachment:
             all_count = len(disclosures)
             return {
                 "error": (
-                    f"Son {days_back} günde '{subject_enum_name}' türünde ek içeren bildirim bulunamadı. "
-                    f"Toplam bulunan bildirim: {all_count}. days_back değerini artırmayı deneyin."
+                    f"Son {actual_days} günde '{subject_enum_name}' türünde ek içeren bildirim bulunamadı. "
+                    f"Toplam bulunan bildirim: {all_count}."
                 ),
                 "fund_code": code,
                 "document_type": subject_enum_name,
-                "searched_days": days_back,
+                "searched_days": actual_days,
             }
 
         latest = with_attachment[0]
@@ -402,36 +625,53 @@ def register(mcp: FastMCP) -> None:
                 "disclosure_url": latest.url,
             }
 
-        preferred = next(
-            (a for a in attachments if re.search(r"\.(pdf|docx|xlsx)$", a.filename, re.IGNORECASE)),
-            attachments[0],
-        )
+        # Dönüştürülebilir ekleri filtrele (PDF/DOCX/XLSX); hiç yoksa hepsini al
+        convertible = [
+            a for a in attachments if re.search(r"\.(pdf|docx|xlsx)$", a.filename, re.IGNORECASE)
+        ] or attachments
 
         attachments_dir = Path(cfg.attachments_dir)
         attachments_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = preferred.filename or preferred.url.split("/")[-1] or "attachment.bin"
-        save_path = attachments_dir / safe_name
+
+        sections: list[str] = []
+        filenames: list[str] = []
 
         with httpx.Client(timeout=60, follow_redirects=True) as client:
-            resp = client.get(preferred.url, headers={"Referer": "https://www.kap.org.tr/"})
-            resp.raise_for_status()
-            save_path.write_bytes(resp.content)
+            for att in convertible:
+                safe_name = att.filename or att.url.split("/")[-1] or "attachment.bin"
+                save_path = attachments_dir / safe_name
+                try:
+                    resp = client.get(att.url, headers={"Referer": "https://www.kap.org.tr/"})
+                    resp.raise_for_status()
+                    save_path.write_bytes(resp.content)
+                except Exception as e:
+                    logger.warning("Ek indirilemedi (%s): %s", safe_name, e)
+                    sections.append(f"### {safe_name}\n[İndirme hatası: {e}]")
+                    filenames.append(safe_name)
+                    continue
 
-        try:
-            from markitdown import MarkItDown
+                try:
+                    from markitdown import MarkItDown
 
-            md_result = MarkItDown().convert(str(save_path))
-            markdown_content = md_result.text_content
-        except Exception as e:
-            logger.warning("markitdown conversion failed for %s: %s", safe_name, e)
-            markdown_content = f"[Dönüştürme hatası: {e}. Dosya: {save_path}]"
+                    md_result = MarkItDown().convert(str(save_path))
+                    sections.append(f"### {safe_name}\n{md_result.text_content}")
+                except Exception as e:
+                    logger.warning("markitdown conversion failed for %s: %s", safe_name, e)
+                    sections.append(
+                        f"### {safe_name}\n[Dönüştürme hatası: {e}. Dosya: {save_path}]"
+                    )
+
+                filenames.append(safe_name)
+
+        markdown_content = "\n\n---\n\n".join(sections)
 
         return {
             "fund_code": code,
             "document_type": subject_enum_name,
             "disclosure_date": latest.publish_datetime.isoformat(),
             "disclosure_url": latest.url,
-            "filename": safe_name,
+            "filenames": filenames,
+            "attachment_count": len(filenames),
             "markdown_content": markdown_content,
         }
 
@@ -439,6 +679,60 @@ def register(mcp: FastMCP) -> None:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+# KAP API rejects date ranges longer than this with HTTP 500 (wrapped 400).
+_KAP_MAX_CHUNK_DAYS = 90
+
+
+def _fetch_disclosures_chunked(
+    kap: Kap,
+    start_date: str,
+    end_date: str,
+    fund_code: str,
+    fund_group: str,
+    subject_oids: list[str] | None = None,
+) -> list:
+    """KAP API'sinin 90-gün sınırını aşmamak için tarih aralığını chunk'lara böler.
+
+    Toplam aralık 90 günden kısa ise tek çağrı yapar.
+    Uzunsa, 90-günlük parçalar hâlinde çağırır ve sonuçları birleştirir.
+    """
+    from datetime import date as _date
+
+    start_dt = _date.fromisoformat(start_date)
+    end_dt = _date.fromisoformat(end_date)
+    total_days = (end_dt - start_dt).days
+
+    if total_days <= _KAP_MAX_CHUNK_DAYS:
+        return kap.fetch_fund_disclosures(
+            start_date=start_date,
+            end_date=end_date,
+            fund_code=fund_code,
+            fund_group=fund_group,
+            subject_oids=subject_oids,
+        )
+
+    # Chunk'lara böl
+    seen: set[int] = set()
+    results: list = []
+    chunk_end = end_dt
+    while chunk_end > start_dt:
+        chunk_start = max(start_dt, chunk_end - timedelta(days=_KAP_MAX_CHUNK_DAYS))
+        batch = kap.fetch_fund_disclosures(
+            start_date=chunk_start.isoformat(),
+            end_date=chunk_end.isoformat(),
+            fund_code=fund_code,
+            fund_group=fund_group,
+            subject_oids=subject_oids,
+        )
+        for d in batch:
+            if d.index not in seen:
+                seen.add(d.index)
+                results.append(d)
+        chunk_end = chunk_start - timedelta(days=1)
+
+    results.sort(key=lambda d: d.publish_datetime, reverse=True)
+    return results
 
 
 def _html_to_text(html: str) -> str:
