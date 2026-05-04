@@ -476,7 +476,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.1" },
-    { name = "kap-client", specifier = ">=1.1.0" },
+    { name = "kap-client", specifier = ">=1.1.1" },
     { name = "markitdown", extras = ["docx", "pdf"], specifier = ">=0.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0,<1.27" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -486,7 +486,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytz", specifier = ">=2026.1.post1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
-    { name = "tefas-client" },
+    { name = "tefas-client", specifier = ">=2.0.2" },
 ]
 provides-extras = ["dev"]
 
@@ -601,15 +601,15 @@ wheels = [
 
 [[package]]
 name = "kap-client"
-version = "1.1.0"
+version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cf/9d/83e7799f8290051ba3c7fc03471e05dd5e3334fee6e7b005cc14fdfbe3a2/kap_client-1.1.0.tar.gz", hash = "sha256:a832371ddb0679640ed777e28b48ba8582f839307c3dde5cff9c0b650325bf61", size = 67234, upload-time = "2026-05-02T16:05:58.155Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/6c/bba6fbd0d77aad1c61b96759ea2395137e2b1b8d45d74e2f05fc835e31f7/kap_client-1.1.1.tar.gz", hash = "sha256:84cfe91339e9926032f88b8cf39fc45ea58d5994c3710d8a92e2d68a7fd0a478", size = 67350, upload-time = "2026-05-04T20:11:48.564Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/20/1437f27261cb4f2dde5f8f760b979b9f0cbaac1f1b08ef9bc9495ef07858/kap_client-1.1.0-py3-none-any.whl", hash = "sha256:ea01048915d3936c1013bea900ccd6cd87e07171e0fad69b21ee937f35bd2984", size = 21025, upload-time = "2026-05-02T16:05:56.592Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/ea/abc2358558e7d7d538565a86f7295261e0ad3b035ca77d2de7b322747faf/kap_client-1.1.1-py3-none-any.whl", hash = "sha256:9f6117264e920557809d0eb8742160ba96c3077a3489a6524f74b50c4a77fc34", size = 21141, upload-time = "2026-05-04T20:11:47.372Z" },
 ]
 
 [[package]]
@@ -1781,15 +1781,15 @@ wheels = [
 
 [[package]]
 name = "tefas-client"
-version = "2.0.1"
+version = "2.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6b/a6/b2c09794618f2b32bf8847e1877c64a4214779dec0a0b72a22f3aa54a943/tefas_client-2.0.1.tar.gz", hash = "sha256:33bb7ec8e1bf294127e47a1a238f21d1bb07c153eed29b9f2091f4ddb6558800", size = 64661, upload-time = "2026-05-01T16:12:04.748Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/32/5c/9b37aa06969292e2b403630f0664703950a5c0c3dcfa79056aeaba37c245/tefas_client-2.0.2.tar.gz", hash = "sha256:4f405ba97b5bd41dc024c067e2312c14fa050cbda4d162e9c461c6db71ef35c1", size = 64907, upload-time = "2026-05-04T20:09:53.921Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/b4/ec8e50934157eec57847a35cbe2a372d3597786686f636c5d1683736d843/tefas_client-2.0.1-py3-none-any.whl", hash = "sha256:70060cd5c9b9cb0187f7eb4c0123dfdeea38d4de0d9a327d598fac06aadc163d", size = 20862, upload-time = "2026-05-01T16:12:03.364Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/83/8b93e21a0ea495bcd4d62a8df1aed0b1cb461b6a84ec7f487a6e498dba63/tefas_client-2.0.2-py3-none-any.whl", hash = "sha256:b3fafcbf5b210c3ee1e4e4d444dd46d8627f2584cf6966384d7de104f3f505ad", size = 20978, upload-time = "2026-05-04T20:09:52.671Z" },
 ]
 
 [[package]]
