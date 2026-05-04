@@ -40,7 +40,7 @@ def _find_config_file() -> str | None:
 class CacheTTL(BaseSettings):
     """Cache TTL values in seconds — all individually overridable."""
 
-    snapshot: int = 900  # 15 min
+    snapshot: int = 3_600  # 1 hour
     price: int = 86_400  # 1 day
     allocation: int = 86_400  # 1 day
     fund_list: int = 604_800  # 7 days
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     risk_free_rate: float = 0.40  # annual, TCMB policy rate default
 
     # --- cache TTL (nested, also overridable flat via env) ---
-    cache_ttl_snapshot: int = 900
+    cache_ttl_snapshot: int = 3_600
     cache_ttl_price: int = 86_400
     cache_ttl_allocation: int = 86_400
     cache_ttl_fund_list: int = 604_800

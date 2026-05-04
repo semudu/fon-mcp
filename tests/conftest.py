@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import kap_client._client as _kap_client_module
 import pytest
+import tefas_client._client as _tefas_client_module
 
 from fon_mcp import _db as db
 from fon_mcp._settings import Settings
@@ -35,6 +37,14 @@ class MockMCP:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch time.sleep in both HTTP clients to a no-op so jitter/back-offs are instant."""
+    _noop_time = type("_T", (), {"sleep": staticmethod(lambda s: None)})()
+    monkeypatch.setattr(_tefas_client_module, "time", _noop_time)
+    monkeypatch.setattr(_kap_client_module, "time", _noop_time)
 
 
 @pytest.fixture(autouse=True)

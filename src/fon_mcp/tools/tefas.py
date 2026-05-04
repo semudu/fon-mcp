@@ -7,7 +7,8 @@ from datetime import date, timedelta
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from tefas_client import Tefas
+from tefas_client import Tefas, TefasError
+from tefas_client.exceptions import EmptyResponseError
 
 from fon_mcp import _db as db
 from fon_mcp._settings import get as settings
@@ -45,6 +46,9 @@ def register(mcp: FastMCP) -> None:
         Veri önce DuckDB cache'inden kontrol edilir; bulunamazsa TEFAS API'sine
         istek atılır ve sonuç cache'lenir.
 
+        ⚠️ Fon kodu bilinmiyorsa önce search_funds kullanın.
+        Yanıtta error="fund_not_found" gelirse farklı kodlar tahmin etmeyin — search_funds ile doğrulayın.
+
         Args:
             fund_code: TEFAS fon kodu (örn. "AAK", "TI2", "GOLD").
             start_date: Başlangıç tarihi ISO formatında (YYYY-MM-DD).
@@ -53,6 +57,7 @@ def register(mcp: FastMCP) -> None:
 
         Returns:
             {fund_code, entries: [{date, price, portfolio_size, share_count, person_count}]}
+            Fon bulunamazsa: {fund_code, entries: [], error: "fund_not_found", message: ...}
         """
         code = fund_code.strip().upper()
         end = end_date or _today()
@@ -69,7 +74,13 @@ def register(mcp: FastMCP) -> None:
         funds = fetch_with_fallback(code, start_dt, end_dt, include_allocation=include_allocation)
 
         if code not in funds:
-            return {"fund_code": code, "entries": [], "source": "api"}
+            return {
+                "fund_code": code,
+                "entries": [],
+                "error": "fund_not_found",
+                "message": f"'{code}' fon kodu bulunamadı. Fon kodunu doğrulamak için search_funds aracını kullanın — farklı kodlar tahmin etmeyin.",
+                "source": "api",
+            }
 
         fund = funds[code]
         entries = [_history_to_dict(h) for h in fund.history]
@@ -117,11 +128,15 @@ def register(mcp: FastMCP) -> None:
 
         Veri 15 dakika boyunca cache'lenir (config ile ayarlanabilir).
 
+        ⚠️ Fon kodu bilinmiyorsa önce search_funds kullanın.
+        Yanıtta error="fund_not_found" gelirse farklı kodlar tahmin etmeyin — search_funds ile doğrulayın.
+
         Args:
             fund_code: TEFAS fon kodu (örn. "IPB").
 
         Returns:
             Fon anlık verilerini içeren sözlük.
+            Fon bulunamazsa: {fund_code, error: "fund_not_found", message: ...}
         """
         code = fund_code.strip().upper()
 
@@ -130,21 +145,40 @@ def register(mcp: FastMCP) -> None:
             logger.debug("Cache hit: snapshot_cache %s", code)
             return {**cached, "source": "cache"}
 
-        with Tefas() as tefas:
-            overview = tefas.fetch_overview(code)
-            # Fiyat tarihini belirle: son 3 günlük geçmişe bak
-            today_str = _today()
-            today_dt = date.fromisoformat(today_str)
-            hist = tefas.fetch(code, start_date=today_dt - timedelta(days=3), end_date=today_dt)
+        today_str = _today()
+        today_dt = date.fromisoformat(today_str)
+
+        try:
+            with Tefas() as tefas:
+                overview = tefas.fetch_overview(code)
+        except (EmptyResponseError, TefasError):
+            return {
+                "fund_code": code,
+                "error": "fund_not_found",
+                "message": f"'{code}' fon kodu TEFAS'ta bulunamadı. Fon kodunu doğrulamak için search_funds aracını kullanın — farklı kodlar tahmin etmeyin.",
+                "source": "api",
+            }
+
+        # Fiyat geçmişine bak: hem price_date hem de overview fiyatı 0/None ise
+        # son geçerli fiyatı bulmak için fetch_with_fallback kullan
+        hist = fetch_with_fallback(code, today_dt - timedelta(days=10), today_dt)
 
         price_date: str | None = None
+        hist_price: float | None = None
         if code in hist and hist[code].history:
-            price_date = hist[code].history[-1].date.isoformat()  # son giriş (ascending)
+            last_h = hist[code].history[-1]
+            price_date = last_h.date.isoformat()
+            hist_price = last_h.price if (last_h.price is not None and last_h.price > 0) else None
+
+        # overview.price 0 ya da None ise son geçerli tarihsel fiyatı kullan
+        effective_price = (
+            overview.price if (overview.price is not None and overview.price > 0) else hist_price
+        )
 
         result: dict = {
             "fund_code": code,
             "title": overview.title,
-            "price": overview.price,
+            "price": effective_price,
             "price_date": price_date,
             "daily_return_pct": overview.daily_return,
             "portfolio_size": overview.market_cap,
@@ -186,22 +220,13 @@ def register(mcp: FastMCP) -> None:
             return {"fund_code": code, "date": date_str, **cached, "source": "cache"}
 
         target_dt = date.fromisoformat(date_str)
-        with Tefas() as tefas:
-            funds = tefas.fetch(
-                code, start_date=target_dt, end_date=target_dt, include_allocation=True
-            )
-
-            # Bugün için veri yoksa (tatil/erken saat) → son 7 güne geri dön
-            if code not in funds or not any(h.allocation for h in funds[code].history):
-                logger.info(
-                    "%s için %s tarihli portföy dağılımı yok; son 7 gün deneniyor.",
-                    code,
-                    date_str,
-                )
-                fallback_start = target_dt - timedelta(days=7)
-                funds = tefas.fetch(
-                    code, start_date=fallback_start, end_date=target_dt, include_allocation=True
-                )
+        # Hem TefasError hem de boş veri için son 7 güne fallback yapan tek çağrı
+        funds = fetch_with_fallback(
+            code,
+            target_dt - timedelta(days=7),
+            target_dt,
+            include_allocation=True,
+        )
 
         if code not in funds:
             return {

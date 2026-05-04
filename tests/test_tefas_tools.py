@@ -68,14 +68,30 @@ def tools(mcp):
 
 
 class TestGetFundSnapshot:
-    def test_returns_price_from_api(self, tools):
-        ov = _make_overview("IPB", price=25.5)
-        mock_tefas = MagicMock()
-        mock_tefas.__enter__ = MagicMock(return_value=mock_tefas)
-        mock_tefas.__exit__ = MagicMock(return_value=False)
-        mock_tefas.fetch_overview.return_value = ov
+    def _make_mocks(self, code: str, price: float = 25.5):
+        """fetch_overview için tools.tefas.Tefas, fetch için _tefas_utils.Tefas mock'u."""
+        ov = _make_overview(code, price=price)
+        mock_ov = MagicMock()
+        mock_ov.__enter__ = MagicMock(return_value=mock_ov)
+        mock_ov.__exit__ = MagicMock(return_value=False)
+        mock_ov.fetch_overview.return_value = ov
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        h = _make_history("2025-01-02", price)
+        fund = _make_fund(code, [h])
+        mock_hist = MagicMock()
+        mock_hist.__enter__ = MagicMock(return_value=mock_hist)
+        mock_hist.__exit__ = MagicMock(return_value=False)
+        mock_hist.fetch.return_value = {code: fund}
+
+        return mock_ov, mock_hist
+
+    def test_returns_price_from_api(self, tools):
+        mock_ov, mock_hist = self._make_mocks("IPB", price=25.5)
+
+        with (
+            patch("fon_mcp.tools.tefas.Tefas", return_value=mock_ov),
+            patch("fon_mcp._tefas_utils.Tefas", return_value=mock_hist),
+        ):
             result = tools["get_fund_snapshot"]("IPB")
 
         assert result["fund_code"] == "IPB"
@@ -84,13 +100,12 @@ class TestGetFundSnapshot:
         assert result["category"] == "Para Piyasası Fonları"
 
     def test_returns_from_cache_on_second_call(self, tools):
-        ov = _make_overview("AAK", price=10.0)
-        mock_tefas = MagicMock()
-        mock_tefas.__enter__ = MagicMock(return_value=mock_tefas)
-        mock_tefas.__exit__ = MagicMock(return_value=False)
-        mock_tefas.fetch_overview.return_value = ov
+        mock_ov, mock_hist = self._make_mocks("AAK", price=10.0)
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with (
+            patch("fon_mcp.tools.tefas.Tefas", return_value=mock_ov),
+            patch("fon_mcp._tefas_utils.Tefas", return_value=mock_hist),
+        ):
             tools["get_fund_snapshot"]("AAK")
             result = tools["get_fund_snapshot"]("AAK")
 
@@ -98,13 +113,12 @@ class TestGetFundSnapshot:
         assert result["price"] == 10.0
 
     def test_fund_code_normalized_uppercase(self, tools):
-        ov = _make_overview("AAK")
-        mock_tefas = MagicMock()
-        mock_tefas.__enter__ = MagicMock(return_value=mock_tefas)
-        mock_tefas.__exit__ = MagicMock(return_value=False)
-        mock_tefas.fetch_overview.return_value = ov
+        mock_ov, mock_hist = self._make_mocks("AAK")
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with (
+            patch("fon_mcp.tools.tefas.Tefas", return_value=mock_ov),
+            patch("fon_mcp._tefas_utils.Tefas", return_value=mock_hist),
+        ):
             result = tools["get_fund_snapshot"]("aak")
 
         assert result["fund_code"] == "AAK"
@@ -178,7 +192,7 @@ class TestGetFundAllocation:
         mock_tefas.__exit__ = MagicMock(return_value=False)
         mock_tefas.fetch.return_value = {"TI2": fund}
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_tefas):
             result = tools["get_fund_allocation"]("TI2", "2025-01-02")
 
         assert result["assets"]["hs"] == 0.60
@@ -198,7 +212,7 @@ class TestGetFundAllocation:
         mock_tefas.__exit__ = MagicMock(return_value=False)
         mock_tefas.fetch.return_value = {"IPB": fund}
 
-        with patch("fon_mcp.tools.tefas.Tefas", return_value=mock_tefas):
+        with patch("fon_mcp._tefas_utils.Tefas", return_value=mock_tefas):
             tools["get_fund_allocation"]("IPB", "2025-01-02")
             result = tools["get_fund_allocation"]("IPB", "2025-01-02")
 

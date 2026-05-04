@@ -25,6 +25,7 @@ def init(db_file: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     _db_path = str(path)
     _conn = duckdb.connect(_db_path)
+    _drop_stale_cache_tables(_conn)
     _create_schema(_conn)
     logger.info("DuckDB opened at %s", _db_path)
 
@@ -50,6 +51,16 @@ def cursor() -> Generator[duckdb.DuckDBPyConnection, None, None]:
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
+
+
+def _drop_stale_cache_tables(con: duckdb.DuckDBPyConnection) -> None:
+    """Cache tablolarının şeması değiştiyse sıfırdan oluşturulsun diye düşür."""
+    tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
+    if "metrics_cache" in tables:
+        cols = {row[1] for row in con.execute("PRAGMA table_info('metrics_cache')").fetchall()}
+        if "data_json" not in cols:
+            con.execute("DROP TABLE metrics_cache")
+            logger.info("metrics_cache eski şemayla bulundu, yeniden oluşturulacak.")
 
 
 def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -209,30 +220,51 @@ def price_cache_get(
 
 
 def price_cache_set(fund_code: str, rows: list[dict]) -> None:
-    con = get()
     now = _now()
-    for row in rows:
-        con.execute(
-            """
-            INSERT INTO price_cache (fund_code, date, price, portfolio_size, share_count, person_count, cached_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (fund_code, date) DO UPDATE SET
-                price          = excluded.price,
-                portfolio_size = excluded.portfolio_size,
-                share_count    = excluded.share_count,
-                person_count   = excluded.person_count,
-                cached_at      = excluded.cached_at
-            """,
-            [
-                fund_code,
-                row["date"],
-                row.get("price"),
-                row.get("portfolio_size"),
-                row.get("share_count"),
-                row.get("person_count"),
-                now,
-            ],
+    tuples = [
+        (
+            fund_code,
+            row["date"],
+            row.get("price"),
+            row.get("portfolio_size"),
+            row.get("share_count"),
+            row.get("person_count"),
+            now,
         )
+        for row in rows
+    ]
+    _price_cache_executemany(tuples)
+
+
+def price_cache_set_bulk(all_rows: list[tuple]) -> None:
+    """Birden fazla fon için tüm satırları tek bir executemany çağrısında yaz.
+
+    Her eleman: (fund_code, date_str, price, portfolio_size, share_count, person_count)
+    """
+    if not all_rows:
+        return
+    now = _now()
+    tuples = [(*row, now) for row in all_rows]
+    _price_cache_executemany(tuples)
+
+
+def _price_cache_executemany(tuples: list[tuple]) -> None:
+    if not tuples:
+        return
+    con = get()
+    con.executemany(
+        """
+        INSERT INTO price_cache (fund_code, date, price, portfolio_size, share_count, person_count, cached_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (fund_code, date) DO UPDATE SET
+            price          = excluded.price,
+            portfolio_size = excluded.portfolio_size,
+            share_count    = excluded.share_count,
+            person_count   = excluded.person_count,
+            cached_at      = excluded.cached_at
+        """,
+        tuples,
+    )
 
 
 # ---------------------------------------------------------------------------

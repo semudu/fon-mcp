@@ -71,6 +71,18 @@ SUBJECT_ALIASES: dict[str, str] = {
     "fon sürekli bilgilendirme formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
     "kid": "FON_SUREKLI_BILGILENDIRME_FORMU",
     "fon_surekli_bilgilendirme_formu": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    # strateji/amaç/risk soruları da KID'e yönlendirilir
+    "strateji": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "fon stratejisi": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "yatırım stratejisi": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "yatirim stratejisi": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "yatırım amacı": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "yatirim amaci": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "fon amacı": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "fon amaci": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "risk profili": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "risk": "FON_SUREKLI_BILGILENDIRME_FORMU",
+    "hedef kitle": "FON_SUREKLI_BILGILENDIRME_FORMU",
     # --- Performans Sunum Raporu ---
     "performans": "PERFORMANS_SUNUM_RAPORU",
     "performans raporu": "PERFORMANS_SUNUM_RAPORU",

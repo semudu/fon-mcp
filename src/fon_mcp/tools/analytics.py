@@ -14,6 +14,8 @@ from fon_mcp import _db as db
 from fon_mcp._settings import get as settings
 from fon_mcp._tefas_utils import fetch_with_fallback, to_business_day
 
+_MAX_FUND_BATCH = 20  # tek seferde karşılaştırılabilecek maksimum fon sayısı
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +46,95 @@ def _ensure_prices(fund_code: str, start_date: str, end_date: str, cfg: Any) -> 
     ]
     db.price_cache_set(fund_code, rows)
     return bool(rows)
+
+
+def _rank_all_metrics_sql(
+    start_date: str,
+    end_date: str,
+    rfr: float,
+    min_trading_days: int = 20,
+) -> list[dict]:
+    """Compute CAGR, volatility, max drawdown, Sharpe for ALL cached funds in one SQL query.
+
+    Vastly faster than calling _compute_metrics_sql per fund because DuckDB
+    evaluates the partitioned window functions in a single vectorised pass.
+    """
+    con = db.get()
+    rows = con.execute(
+        """
+        WITH base AS (
+            SELECT
+                fund_code,
+                date::DATE AS dt,
+                price
+            FROM price_cache
+            WHERE date BETWEEN ? AND ? AND price IS NOT NULL AND price > 0
+        ),
+        returns AS (
+            SELECT
+                fund_code,
+                dt,
+                price,
+                price / LAG(price) OVER (PARTITION BY fund_code ORDER BY dt) - 1 AS daily_return
+            FROM base
+        ),
+        dd AS (
+            SELECT
+                fund_code,
+                dt,
+                price,
+                daily_return,
+                MAX(price) OVER (
+                    PARTITION BY fund_code ORDER BY dt
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                ) AS running_max
+            FROM returns
+        ),
+        stats AS (
+            SELECT
+                fund_code,
+                FIRST(price ORDER BY dt ASC)  AS start_price,
+                LAST(price ORDER BY dt ASC)   AS end_price,
+                STDDEV_POP(daily_return)       AS daily_std,
+                MIN(price / running_max - 1)   AS max_drawdown,
+                COUNT(*)                       AS trading_days,
+                DATEDIFF('day', MIN(dt), MAX(dt)) AS calendar_days
+            FROM dd
+            GROUP BY fund_code
+            HAVING COUNT(*) >= ?
+              AND FIRST(price ORDER BY dt ASC) > 0
+              AND DATEDIFF('day', MIN(dt), MAX(dt)) > 0
+        )
+        SELECT fund_code, start_price, end_price, daily_std,
+               max_drawdown, trading_days, calendar_days
+        FROM stats
+        """,
+        [start_date, end_date, min_trading_days],
+    ).fetchall()
+
+    results: list[dict] = []
+    for row in rows:
+        fund_code, start_price, end_price, daily_std, max_drawdown, trading_days, calendar_days = (
+            row
+        )
+        if not start_price or not end_price:
+            continue
+        cagr = (end_price / start_price) ** (365.0 / calendar_days) - 1
+        vol = daily_std * math.sqrt(252) if daily_std else None
+        sharpe = (cagr - rfr) / vol if vol else None
+        results.append(
+            {
+                "fund_code": fund_code,
+                "cagr_pct": round(cagr * 100, 4),
+                "volatility_ann_pct": round(vol * 100, 4) if vol is not None else None,
+                "max_drawdown_pct": round(max_drawdown * 100, 4)
+                if max_drawdown is not None
+                else None,
+                "sharpe_ratio": round(sharpe, 4) if sharpe is not None else None,
+                "trading_days": trading_days,
+            }
+        )
+    return results
 
 
 def _compute_metrics_sql(fund_code: str, start_date: str, end_date: str) -> dict | None:
@@ -161,6 +252,9 @@ def register(mcp: FastMCP) -> None:
         - **Maksimum Drawdown** (tepe değerden en derin düşüş)
         - **Sharpe Oranı** (CAGR − risksiz oran) / volatilite
 
+        ⚠️ Fon kodu bilinmiyorsa önce search_funds kullanın.
+        Yanıtta error="Fiyat verisi bulunamadı" gelirse fon kodu yanlış olabilir — farklı kodlar tahmin etmeyin.
+
         Args:
             fund_code: TEFAS fon kodu (örn. "AAK", "IPB").
             start_date: Analiz başlangıç tarihi (YYYY-MM-DD).
@@ -181,7 +275,12 @@ def register(mcp: FastMCP) -> None:
                 return {**data, "fund_code": code, "source": "cache"}
 
         if not _ensure_prices(code, start_date, end_date, cfg):
-            return {"fund_code": code, "error": "Fiyat verisi bulunamadı", "source": "api"}
+            return {
+                "fund_code": code,
+                "error": "fund_not_found",
+                "message": f"'{code}' fon kodu bulunamadı veya belirtilen tarih aralığında fiyat verisi yok. Fon kodunu doğrulamak için search_funds kullanın — farklı kodlar tahmin etmeyin.",
+                "source": "api",
+            }
 
         m = _compute_metrics_sql(code, start_date, end_date)
         if m is None:
@@ -229,6 +328,10 @@ def register(mcp: FastMCP) -> None:
         Returns:
             {comparisons: [{fund_code, cagr_pct, volatility_ann_pct, sharpe_ratio, max_drawdown_pct}]}
         """
+        if len(fund_codes) > _MAX_FUND_BATCH:
+            return {
+                "error": f"En fazla {_MAX_FUND_BATCH} fon karşılaştırılabilir, {len(fund_codes)} gönderildi."
+            }
         rfr = risk_free_rate if risk_free_rate is not None else cfg.risk_free_rate
         results = []
 
@@ -282,6 +385,11 @@ def register(mcp: FastMCP) -> None:
         Returns:
             {matrix: {fund_a: {fund_b: correlation_value}}}
         """
+        if len(fund_codes) > _MAX_FUND_BATCH:
+            return {
+                "error": f"En fazla {_MAX_FUND_BATCH} fon karşılaştırılabilir, {len(fund_codes)} gönderildi.",
+                "matrix": {},
+            }
         con = db.get()
         codes = [c.strip().upper() for c in fund_codes]
 
@@ -343,6 +451,8 @@ def register(mcp: FastMCP) -> None:
             "funds_with_data": valid_codes,
         }
 
+    _RANK_TOP_N_MAX = 50  # rank fonksiyonlarında izin verilen maksimum fon sayısı
+
     @mcp.tool()
     def rank_funds(
         fund_type: str = "YAT",
@@ -353,58 +463,79 @@ def register(mcp: FastMCP) -> None:
     ) -> dict:
         """TEFAS'taki fonları seçilen metriğe göre sıralandırır.
 
-        Bu araç DuckDB'deki mevcut cache'ten yararlanarak analiz yapar.
-        En iyi sonuç için önce search_funds ile fon listesi çekmeniz ve
-        ardından calculate_metrics ile cache doldurmak gerekebilir.
+        Her çağrıda ilgili fon tipi için TEFAS'tan taze veri çekilir; bu sayede
+        yeni eklenen fonlar da sıralamaya girer. Sonuçlar price_cache'e yazılır.
+
+        Haftasonu ve tatil günlerinde end_date otomatik olarak son iş gününe çekilir.
 
         Args:
             fund_type: "YAT", "EMK" veya "BYF".
             metric: Sıralama metriği: "cagr", "sharpe", "volatility" (düşükten), "max_drawdown" (düşükten).
             period_days: Analiz penceresi (gün). Default 365.
-            top_n: Döndürülecek maksimum fon sayısı. Default 20.
+            top_n: Döndürülecek maksimum fon sayısı. Default 20, maksimum 50.
             risk_free_rate: Sharpe hesabı için risksiz oran.
 
         Returns:
             {ranked: [{rank, fund_code, metric_value, cagr_pct, sharpe_ratio, volatility_ann_pct}]}
         """
+        top_n = min(top_n, _RANK_TOP_N_MAX)
         rfr = risk_free_rate if risk_free_rate is not None else cfg.risk_free_rate
-        end_date = date.today().isoformat()
-        start_date = (date.today() - timedelta(days=period_days)).isoformat()
 
+        end_dt = to_business_day(date.today())
+        start_dt = to_business_day(date.today() - timedelta(days=period_days))
+        end_date = end_dt.isoformat()
+        start_date = start_dt.isoformat()
+
+        # Cache kontrolü: period_days için yeterli veri yoksa tam aralığı çek (ilk çalışma).
+        # Taze cache varsa sadece son 28 günü tazele (tek chunk → hızlı).
         con = db.get()
+        oldest_row = con.execute(
+            "SELECT MIN(date) FROM price_cache WHERE date >= ?", [start_date]
+        ).fetchone()
+        oldest_cached = str(oldest_row[0]) if oldest_row and oldest_row[0] else None
+        cold_cache = (
+            oldest_cached is None or oldest_cached > (start_dt + timedelta(days=10)).isoformat()
+        )
 
-        # Get all fund codes with price data in the range
-        codes_rows = con.execute(
-            """
-            SELECT DISTINCT fund_code
-            FROM price_cache
-            WHERE date BETWEEN ? AND ?
-            """,
-            [start_date, end_date],
-        ).fetchall()
-
-        all_codes = [r[0] for r in codes_rows]
-        if not all_codes:
-            return {"ranked": [], "note": "Cache boş. Önce fonları fetch edin."}
-
-        results = []
-        for code in all_codes:
-            m = _compute_metrics_sql(code, start_date, end_date)
-            if m is None or m["trading_days"] < 20:
-                continue
-            vol = m["volatility_ann_pct"] / 100
-            cagr = m["cagr_pct"] / 100
-            sharpe = (cagr - rfr) / vol if vol else None
-            results.append(
-                {
-                    "fund_code": code,
-                    "cagr_pct": m["cagr_pct"],
-                    "volatility_ann_pct": m["volatility_ann_pct"],
-                    "max_drawdown_pct": m["max_drawdown_pct"],
-                    "sharpe_ratio": round(sharpe, 4) if sharpe is not None else None,
-                    "trading_days": m["trading_days"],
-                }
+        if cold_cache:
+            fetch_start_dt = start_dt
+            logger.info(
+                "rank_funds: Cache soğuk — %s tipi fonlar tam dönem çekiliyor (%s – %s)",
+                fund_type,
+                start_date,
+                end_date,
             )
+        else:
+            fetch_start_dt = to_business_day(end_dt - timedelta(days=28))
+            logger.info(
+                "rank_funds: Cache sıcak — %s tipi fonlar tazeleniyor (%s – %s)",
+                fund_type,
+                fetch_start_dt.isoformat(),
+                end_date,
+            )
+        funds_data = fetch_with_fallback(None, fetch_start_dt, end_dt, fund_type=fund_type.upper())
+        bulk_rows = [
+            (
+                code,
+                h.date.isoformat(),
+                h.price,
+                h.market_cap,
+                h.number_of_shares,
+                h.number_of_investors,
+            )
+            for code, fund in funds_data.items()
+            for h in fund.history
+        ]
+        db.price_cache_set_bulk(bulk_rows)
+
+        # Tüm fonlar için metrikleri tek SQL sorgusunda hesapla (partition by)
+        results = _rank_all_metrics_sql(start_date, end_date, rfr)
+
+        if not results:
+            return {
+                "ranked": [],
+                "note": "Cache'de yeterli veri yok. Yeni fonlar için en az 20 işlem günü gereklidir.",
+            }
 
         # Sort by selected metric
         metric = metric.lower()
@@ -522,26 +653,61 @@ def register(mcp: FastMCP) -> None:
         top_n: int = 20,
         metric: str = "investor_delta",
         ascending: bool = False,
+        fund_type: str = "YAT",
     ) -> dict:
-        """Cache'deki fonları yatırımcı sayısı veya AUM değişimine göre sıralar.
+        """TEFAS'taki fonları yatırımcı sayısı veya AUM değişimine göre sıralar.
+
+        Her çağrıda TEFAS'tan taze veri çekilir; yeni eklenen fonlar da sıralamaya girer.
+        Haftasonu/tatil günlerinde end_date otomatik olarak son iş gününe çekilir.
 
         "En çok yatırımcı kazanan/kaybeden fonlar" veya "en büyük AUM girişi/çıkışı"
-        sorularını yanıtlar. Yalnızca DuckDB cache'indeki verilerden hesaplanır;
-        veri yoksa önce get_fund_price_history veya search_funds çağrılmalıdır.
+        sorularını yanıtlar.
 
         Args:
             period_days: Analiz penceresi (gün). Default 30.
-            top_n: Döndürülecek fon sayısı. Default 20.
+            top_n: Döndürülecek fon sayısı. Default 20, maksimum 50.
             metric: Sıralama kriteri: "investor_delta" (yatırımcı sayısı değişimi),
                     "investor_pct" (yüzde değişim), "aum_delta" (TL cinsinden AUM değişimi),
                     "aum_pct" (AUM yüzde değişimi).
             ascending: True = en çok kaybeden önce. Default False (en çok kazanan önce).
+            fund_type: "YAT", "EMK" veya "BYF". Default "YAT".
 
         Returns:
             {ranked: [{rank, fund_code, investor_delta, investor_pct, aum_delta_tl, aum_pct}]}
         """
-        end_date = date.today().isoformat()
-        start_date = (date.today() - timedelta(days=period_days)).isoformat()
+        top_n = min(top_n, _RANK_TOP_N_MAX)
+
+        end_dt = to_business_day(date.today())
+        start_dt = to_business_day(date.today() - timedelta(days=period_days))
+        end_date = end_dt.isoformat()
+        start_date = start_dt.isoformat()
+
+        # TEFAS'tan tüm fon tipini çek; tek chunk (≤28 gün) ile hız garantilenir.
+        # period_days > 28 ise eski veriler cache'den okunur.
+        refresh_days = min(period_days, 28)
+        refresh_start_dt = to_business_day(end_dt - timedelta(days=refresh_days))
+        logger.info(
+            "rank_by_investor_flow: TEFAS'tan %s tipi fonlar tazeleniyor (%s – %s)",
+            fund_type,
+            refresh_start_dt.isoformat(),
+            end_date,
+        )
+        funds_data = fetch_with_fallback(
+            None, refresh_start_dt, end_dt, fund_type=fund_type.upper()
+        )
+        bulk_rows = [
+            (
+                code,
+                h.date.isoformat(),
+                h.price,
+                h.market_cap,
+                h.number_of_shares,
+                h.number_of_investors,
+            )
+            for code, fund in funds_data.items()
+            for h in fund.history
+        ]
+        db.price_cache_set_bulk(bulk_rows)
 
         con = db.get()
         rows = con.execute(
@@ -565,7 +731,7 @@ def register(mcp: FastMCP) -> None:
         if not rows:
             return {
                 "ranked": [],
-                "note": "Cache boş veya yetersiz veri. Önce get_fund_price_history veya search_funds çağrın.",
+                "note": "TEFAS'tan veri alınamadı (tatil, API hatası veya yetersiz veri).",
             }
 
         results = []
